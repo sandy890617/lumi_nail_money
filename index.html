@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>美甲工作室營運記帳、顧客與全品項庫存系統</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 頂部標題與導覽 -->
+    <header class="app-header">
+      <div class="brand-info">
+        <span class="badge">嚕咪美學 Lumi Beauty</span>
+        <h1>美甲營運記帳 & 顧客庫存管理系統</h1>
+        <p class="subtitle">收支損益、顧客來店配方、全品項材料庫存與單客成本試算</p>
+      </div>
+      <div class="header-actions">
+        <button id="cloudSyncBtn" class="btn btn-primary" title="設定或執行 Google Sheets 雲端同步">
+          <i data-lucide="cloud"></i> 雲端同步
+        </button>
+        <button id="exportCsvBtn" class="btn btn-outline" title="匯出 Excel 可開啟的 CSV 報表">
+          <i data-lucide="download"></i> 匯出 CSV
+        </button>
+        <button id="backupJsonBtn" class="btn btn-outline" title="備份所有資料為 JSON">
+          <i data-lucide="save"></i> 備份
+        </button>
+        <label for="restoreJsonInput" class="btn btn-outline" title="從 JSON 檔案還原資料">
+          <i data-lucide="upload"></i> 還原
+          <input type="file" id="restoreJsonInput" accept=".json" hidden />
+        </label>
+      </div>
+    </header>
+
+    <!-- 雲端同步狀態提示列 -->
+    <div id="syncStatusBar" class="sync-bar hidden">
+      <span id="syncStatusText">尚未設定 Google Sheets 雲端網址</span>
+      <div class="sync-bar-actions">
+        <button id="pullCloudBtn" class="btn btn-outline sm-btn">從雲端下載覆蓋</button>
+        <button id="pushCloudBtn" class="btn btn-primary sm-btn">上傳至雲端</button>
+      </div>
+    </div>
+
+    <!-- 分頁切換選單 -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="dashboard">
+        <i data-lucide="pie-chart"></i> 營運總覽
+      </button>
+      <button class="tab-btn" data-tab="ledger">
+        <i data-lucide="book-open"></i> 日常記帳
+      </button>
+      <button class="tab-btn" data-tab="clients">
+        <i data-lucide="users"></i> 顧客管理
+      </button>
+      <button class="tab-btn" data-tab="inventory">
+        <i data-lucide="package"></i> 材料與色膠庫存
+      </button>
+      <button class="tab-btn" data-tab="calculator">
+        <i data-lucide="calculator"></i> 單客成本試算
+      </button>
+    </nav>
+
+    <!-- 分頁 1：營運總覽 -->
+    <main id="tab-dashboard" class="tab-content active">
+      <div class="filter-bar">
+        <label for="monthFilter">檢視月份：</label>
+        <select id="monthFilter" class="form-control sm">
+          <option value="all">全部歷史紀錄</option>
+        </select>
+      </div>
+
+      <section class="kpi-grid">
+        <div class="card kpi-card">
+          <div class="kpi-label">總營業收入</div>
+          <div class="kpi-value income" id="kpiIncome">$0</div>
+          <div class="kpi-sub" id="kpiIncomeCount">共 0 筆服務</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">總營運支出</div>
+          <div class="kpi-value expense" id="kpiExpense">$0</div>
+          <div class="kpi-sub" id="kpiExpenseCount">共 0 筆支出</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">實際淨利潤</div>
+          <div class="kpi-value profit" id="kpiProfit">$0</div>
+          <div class="kpi-sub" id="kpiAvgTicket">平均客單價：$0</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">活躍顧客 / 低庫存</div>
+          <div class="kpi-value margin" id="kpiClientCount">0 位</div>
+          <div class="kpi-sub" id="kpiLowStockSub">低庫存提醒：0 項</div>
+        </div>
+      </section>
+
+      <section class="charts-grid">
+        <div class="card chart-card">
+          <h3>近 6 個月收支趨勢</h3>
+          <div class="chart-wrapper">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <h3>服務收入項目佔比</h3>
+          <div class="chart-wrapper">
+            <canvas id="incomeCategoryChart"></canvas>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <h3>營運支出類別佔比</h3>
+          <div class="chart-wrapper">
+            <canvas id="expenseCategoryChart"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 分頁 2：日常記帳 -->
+    <main id="tab-ledger" class="tab-content">
+      <div class="ledger-layout">
+        <section class="card form-card">
+          <h3>新增收支紀錄</h3>
+          <div class="type-toggle">
+            <button type="button" class="type-btn active" data-type="income">營業收入</button>
+            <button type="button" class="type-btn" data-type="expense">營運支出</button>
+          </div>
+
+          <form id="ledgerForm">
+            <input type="hidden" id="entryType" value="income" />
+
+            <div class="form-group">
+              <label for="entryDate">日期</label>
+              <input type="date" id="entryDate" class="form-control" required />
+            </div>
+
+            <div class="form-group" id="entryClientGroup">
+              <label for="entryClient">來店客人（選填，將同步寫入顧客紀錄）</label>
+              <select id="entryClient" class="form-control">
+                <option value="">-- 不指定客人（散客） --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="entryCategory">項目分類</label>
+              <select id="entryCategory" class="form-control" required></select>
+            </div>
+
+            <!-- 卸甲紀錄膠囊按鈕 -->
+            <div class="form-group" id="entryRemovalGroup">
+              <label>卸甲紀錄（點選將自動標註於備註）</label>
+              <div class="pill-group" id="ledgerRemovalPills">
+                <button type="button" class="pill-btn active" data-name="none">無卸甲</button>
+                <button type="button" class="pill-btn" data-name="本店卸甲">本店卸甲</button>
+                <button type="button" class="pill-btn" data-name="他店卸甲">他店卸甲</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="entryAmount">總金額 (TWD)</label>
+              <input type="number" id="entryAmount" class="form-control" min="0" step="1" placeholder="例如：1200" required />
+            </div>
+
+            <div class="form-group">
+              <label for="entryNote">備註 / 品項明細（選填）</label>
+              <input type="text" id="entryNote" class="form-control" placeholder="例如：奶茶單色+卸甲 / 4mm珍珠10包" />
+            </div>
+
+            <!-- 營運支出專用：進貨自動同步入庫 -->
+            <div id="syncExpenseInvBox" class="sync-inv-box hidden">
+              <label class="checkbox-label" style="margin-top: 0;">
+                <input type="checkbox" id="syncExpenseToInvCheck" />
+                <strong>同步加入「材料與色膠庫存」</strong>
+              </label>
+              <div id="syncExpenseInvFields" class="hidden" style="margin-top: 10px;">
+                <div class="calc-grid-2">
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label>品牌 / 來源</label>
+                    <input type="text" id="quickInvBrand" class="form-control sm-input" placeholder="如：淘寶 / Dolly" />
+                  </div>
+                  <div class="form-group" style="margin-bottom: 8px;">
+                    <label>型號 / 規格</label>
+                    <input type="text" id="quickInvCode" class="form-control sm-input" placeholder="如：4mm / #018" />
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 8px;">
+                  <label>品名描述</label>
+                  <input type="text" id="quickInvName" class="form-control sm-input" placeholder="如：平底圓珍珠 / 真甲磨棒" />
+                </div>
+                <div class="calc-grid-2">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label>購入數量</label>
+                    <input type="number" id="quickInvQty" class="form-control sm-input" min="1" value="1" />
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label>計算單位</label>
+                    <select id="quickInvUnit" class="form-control sm-input">
+                      <option value="罐">罐</option>
+                      <option value="瓶">瓶</option>
+                      <option value="個">個</option>
+                      <option value="支">支</option>
+                      <option value="包">包</option>
+                      <option value="台">台</option>
+                      <option value="張">張</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary full-width" style="margin-top: 10px;">
+              <i data-lucide="plus-circle"></i> 加入紀錄
+            </button>
+          </form>
+        </section>
+
+        <section class="card table-card">
+          <div class="table-header">
+            <h3>收支明細列表</h3>
+            <div class="table-filters">
+              <select id="ledgerTypeFilter" class="form-control sm">
+                <option value="all">全部類型</option>
+                <option value="income">僅看收入</option>
+                <option value="expense">僅看支出</option>
+              </select>
+              <button id="resetDemoBtn" class="btn btn-text" title="重置為範例資料">重置資料</button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>類型</th>
+                  <th>分類</th>
+                  <th>客人</th>
+                  <th>備註</th>
+                  <th class="text-right">金額</th>
+                  <th class="text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="ledgerTableBody"></tbody>
+            </table>
+          </div>
+          <div id="emptyLedgerMsg" class="empty-state hidden">目前尚無記帳資料，請從左側新增第一筆紀錄。</div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 分頁 3：顧客管理 CRM -->
+    <main id="tab-clients" class="tab-content">
+      <div class="crm-layout">
+        <div class="crm-left">
+          <section class="card">
+            <h3>新增顧客檔案</h3>
+            <form id="clientForm" class="client-form-grid">
+              <div class="form-group">
+                <label for="clientName">客人姓名 / 暱稱 *</label>
+                <input type="text" id="clientName" class="form-control" placeholder="例如：陳小姐 / 小敏" required />
+              </div>
+              <div class="form-group">
+                <label for="clientSocial">IG 帳號 / LINE 聯絡方式</label>
+                <input type="text" id="clientSocial" class="form-control" placeholder="例如：@min_daily" />
+              </div>
+              <div class="form-group">
+                <label for="clientNailNote">甲型 / 指緣狀況 / 偏好禁忌</label>
+                <input type="text" id="clientNailNote" class="form-control" placeholder="例如：扇形甲、甘皮較薄、喜歡短方圓奶茶色" />
+              </div>
+              <button type="submit" class="btn btn-primary full-width">
+                <i data-lucide="user-plus"></i> 建立顧客檔案
+              </button>
+            </form>
+          </section>
+
+          <section class="card" style="margin-top: 20px;">
+            <div class="table-header">
+              <h3>顧客名單 (<span id="clientTotalCount">0</span>)</h3>
+              <input type="text" id="clientSearchInput" class="form-control sm" placeholder="搜尋姓名、IG 或備註..." />
+            </div>
+            <div id="clientListContainer" class="client-list"></div>
+          </section>
+        </div>
+
+        <section class="card crm-detail-card" id="clientDetailPanel">
+          <div id="noClientSelected" class="empty-state">
+            <i data-lucide="mouse-pointer-click" style="width: 32px; height: 32px; margin-bottom: 8px; opacity: 0.5;"></i>
+            <p>請從左側點選一位客人，檢視或新增她的來店施作與色號紀錄。</p>
+          </div>
+
+          <div id="clientDetailContent" class="hidden">
+            <!-- 顧客標題列（支援編輯姓名與社群聯絡方式） -->
+            <div class="client-detail-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
+              <!-- 檢視模式 -->
+              <div id="clientInfoViewMode">
+                <h2 id="detailClientName">客人姓名</h2>
+                <p class="subtitle" id="detailClientSocial">@ig_account</p>
+              </div>
+
+              <!-- 編輯模式（預設隱藏） -->
+              <div id="clientInfoEditMode" class="hidden" style="flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                <input type="text" id="editClientNameInput" class="form-control sm-input" placeholder="客人姓名 / 暱稱 *" style="flex: 1; min-width: 140px;" />
+                <input type="text" id="editClientSocialInput" class="form-control sm-input" placeholder="IG 帳號 / LINE 聯絡方式" style="flex: 1; min-width: 140px;" />
+                <button type="button" id="saveClientInfoBtn" class="btn btn-primary" style="padding: 8px 14px; font-size: 13px;">儲存</button>
+                <button type="button" id="cancelEditClientInfoBtn" class="btn-secondary" style="padding: 8px 12px; font-size: 13px;">取消</button>
+              </div>
+
+              <!-- 右上角操作按鈕 -->
+              <div id="clientHeaderActions" style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                <button type="button" id="editClientInfoBtn" class="btn-secondary" style="padding: 6px 12px; font-size: 13px;">
+                  <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i> 編輯資料
+                </button>
+                <button type="button" id="deleteClientBtn" class="btn btn-text" style="color: var(--expense-color);">
+                  <i data-lucide="trash-2"></i> 刪除顧客
+                </button>
+              </div>
+            </div>
+
+            <div class="client-stats-bar">
+              <div class="stat-pill">
+                <span>累計來店</span>
+                <strong id="detailVisitCount">0 次</strong>
+              </div>
+              <div class="stat-pill">
+                <span>累計消費</span>
+                <strong id="detailTotalSpent">$0</strong>
+              </div>
+              <div class="stat-pill">
+                <span>最近來店</span>
+                <strong id="detailLastVisit">尚無紀錄</strong>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 16px;">
+              <label for="detailNailNoteInput">甲況與專屬偏好筆記（修改後點擊儲存）</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="detailNailNoteInput" class="form-control" />
+                <button id="saveClientNoteBtn" type="button" class="btn btn-outline">儲存</button>
+              </div>
+            </div>
+
+            <hr class="divider" />
+
+            <h4>新增本次來店施作紀錄</h4>
+            <input type="hidden" id="visitEditId" value="" />
+            <form id="visitForm" class="visit-form-box">
+              <div class="calc-grid-2">
+                <div class="form-group">
+                  <label>來店日期</label>
+                  <input type="date" id="visitDate" class="form-control" required />
+                </div>
+                <div class="form-group">
+                  <label>服務項目分類</label>
+                  <select id="visitCategory" class="form-control" required></select>
+                </div>
+                <!-- 卸甲紀錄膠囊按鈕 -->
+                <div class="form-group">
+                  <label>卸甲紀錄（點選將自動標註於配方）</label>
+                  <div class="pill-group" id="visitRemovalPills">
+                    <button type="button" class="pill-btn active" data-name="none">無卸甲</button>
+                    <button type="button" class="pill-btn" data-name="本店卸甲">本店卸甲</button>
+                    <button type="button" class="pill-btn" data-name="他店卸甲">他店卸甲</button>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>消費金額 ($)</label>
+                  <input type="number" id="visitAmount" class="form-control" min="0" placeholder="1200" required />
+                </div>
+                <div class="form-group">
+                  <label>下次建議回補週數</label>
+                  <select id="visitNextWeeks" class="form-control">
+                    <option value="3">3 週後</option>
+                    <option value="4" selected>4 週後</option>
+                    <option value="5">5 週後</option>
+                    <option value="0">不特別設定</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>款式與用膠色號配方（選填，底膠 / 主色號 / 建構 / 飾品）</label>
+                <input type="text" id="visitFormula" class="form-control" placeholder="例如：Presto底膠 + Dolly #018 兩層 + 貓眼粉，左手無名指貼珍珠" />
+              </div>
+              <div class="form-group">
+                <label>本次用膠色號（輸入色號點選，儲存時自動寫入配方並各扣 2%）</label>
+                <div class="gel-picker-compact">
+                  <!-- 已選取的用膠標籤 -->
+                  <div id="selectedGelTags" class="selected-gel-tags"></div>
+                  <!-- 即時搜尋框 -->
+                  <input type="text" id="visitGelSearch" class="form-control sm-input" placeholder="輸入色號或品牌搜尋（如：A30、7號、底膠）..." autocomplete="off" />
+                  <!-- 搜尋結果 / 常用功能膠快捷區 -->
+                  <div id="visitGelDropdown" class="gel-dropdown-results hidden"></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>成品照片（選填，手機可直接拍照或選相簿）</label>
+                <label for="visitPhotoInput" class="photo-upload-dropzone">
+                  <i data-lucide="camera" style="width: 18px; height: 18px; color: var(--accent-primary);"></i>
+                  <span>點擊拍照或從相簿選擇成品照</span>
+                </label>
+                <input type="file" id="visitPhotoInput" accept="image/*" hidden />
+                <div id="visitPhotoPreviewWrap" class="hidden" style="margin-top: 10px; position: relative; display: inline-block;">
+                  <img id="visitPhotoPreview" src="" alt="預覽照片" style="max-height: 120px; border-radius: 10px; border: 1px solid var(--border-color);" />
+                  <button type="button" id="clearVisitPhotoBtn" class="delete-btn" style="position: absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.9); box-shadow: 0 2px 4px rgba(0,0,0,0.1);">✕</button>
+                </div>
+              </div>
+              <label class="checkbox-label">
+                <input type="checkbox" id="syncToLedgerCheck" checked />
+                同步將此筆金額記入「日常記帳」營業收入
+              </label>
+              <div style="display: flex; gap: 8px; align-items: stretch; margin-top: 10px;">
+                <button type="submit" id="visitSubmitBtn" class="btn btn-primary" style="flex: 1;">
+                  <i data-lucide="check-circle"></i> 儲存來店紀錄
+                </button>
+                <button type="button" id="cancelEditVisitBtn" class="btn-secondary hidden">取消編輯</button>
+              </div>
+            </form>
+
+            <h4 style="margin-top: 22px; margin-bottom: 12px;">歷史來店與配方時間軸</h4>
+            <div id="visitTimeline" class="visit-timeline"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 分頁 4：全品項材料與色膠庫存管理 -->
+    <main id="tab-inventory" class="tab-content">
+      <div class="ledger-layout">
+        <!-- 新增 / 編輯庫存表單 -->
+        <section class="card form-card" id="inventoryFormCard">
+          <div class="table-header" style="margin-bottom: 12px;">
+            <h3 id="invFormTitle" style="margin-bottom: 0;">新增材料 / 色膠庫存</h3>
+            <button type="button" id="cancelEditInvBtn" class="btn btn-text hidden" style="color: var(--expense-color);">
+              取消編輯
+            </button>
+          </div>
+          <form id="inventoryForm">
+            <input type="hidden" id="invEditId" value="" />
+            <div class="form-group">
+              <label for="invCategory">材料分類 *</label>
+              <select id="invCategory" class="form-control">
+                <option value="色膠">色膠</option>
+                <option value="貓眼膠">貓眼膠</option>
+                <option value="亮片膠">亮片膠/點綴膠</option>
+                <option value="功能膠（底膠/建構/上層）">功能膠（底膠/建構/上層）</option>
+                <option value="飾品 / 貼紙 / 粉類">飾品 / 貼紙 / 粉類（包/盒）</option>
+                <option value="拋棄式耗材">拋棄式耗材（磨棒/棉片/卸甲水）</option>
+                <option value="工具 / 磨頭 / 設備">工具 / 磨頭 / 設備（支/個）</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="invBrand">品牌 / 購買來源 *</label>
+              <input type="text" id="invBrand" class="form-control" placeholder="例如：花校長 / Dolly Gel / 淘寶" required />
+            </div>
+
+            <div class="calc-grid-2">
+              <div class="form-group">
+                <label for="invCode">色號 / 規格 *</label>
+                <input type="text" id="invCode" class="form-control" placeholder="例如：#018 或 4mm/100入" required />
+              </div>
+              <div class="form-group" id="invColorGroup">
+                <label for="invColorHex">色卡代表色</label>
+                <input type="color" id="invColorHex" class="form-control color-picker" value="#D5B89E" />
+              </div>
+              <div class="form-group hidden" id="invUnitGroup">
+                <label for="invUnit">計算單位</label>
+                <select id="invUnit" class="form-control">
+                  <option value="罐">罐</option>
+                  <option value="瓶">瓶</option>
+                  <option value="個">個</option>
+                  <option value="支">支</option>
+                  <option value="包">包</option>
+                  <option value="台">台</option>
+                  <option value="張">張</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="invName">品名 / 色系描述 *</label>
+              <input type="text" id="invName" class="form-control" placeholder="例如：透膚烏龍奶茶 / 平底圓珍珠" required />
+            </div>
+
+            <div class="calc-grid-2">
+              <div class="form-group">
+                <label for="invStock" id="invStockLabel">目前庫存瓶數</label>
+                <input type="number" id="invStock" class="form-control" min="0" step="1" value="1" required />
+              </div>
+              <div class="form-group" id="invRemainingGroup">
+                <label for="invRemainingPct">開瓶剩餘量 (%)</label>
+                <input type="number" id="invRemainingPct" class="form-control" min="0" max="100" step="1" value="100" required />
+              </div>
+              <div class="form-group hidden" id="invLowThresholdGroup">
+                <label for="invLowThreshold">低庫存提醒線</label>
+                <input type="number" id="invLowThreshold" class="form-control" min="0" value="1" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="invUnitPrice">單件購入成本 ($ / 每瓶、每包或每支)</label>
+              <input type="number" id="invUnitPrice" class="form-control" min="0" placeholder="例如：120" value="120" />
+            </div>
+
+            <button type="submit" id="invSubmitBtn" class="btn btn-primary full-width">
+              <i data-lucide="plus-circle"></i> 加入庫存清單
+            </button>
+          </form>
+        </section>
+
+        <!-- 庫存總表 -->
+        <section class="card table-card">
+          <div class="table-header">
+            <div>
+              <h3>材料與色膠庫存清單</h3>
+              <p class="subtitle" id="inventorySummaryText">總庫存估值：$0</p>
+            </div>
+            <div class="table-filters">
+              <input type="text" id="invSearchInput" class="form-control sm" placeholder="搜尋品牌、色號或品名..." />
+              <select id="invFilterSelect" class="form-control sm">
+                <option value="all">全部庫存</option>
+                <option value="low">僅看需補貨（低庫存）</option>
+                <option value="色膠">色膠</option>
+                <option value="貓眼膠">貓眼膠</option>
+                <option value="功能膠（底膠/建構/上層）">功能膠</option>
+                <option value="飾品 / 貼紙 / 粉類">飾品 / 貼紙 / 粉類</option>
+                <option value="拋棄式耗材">拋棄式耗材</option>
+                <option value="工具 / 磨頭 / 設備">工具 / 磨頭 / 設備</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th>識別</th>
+                  <th>品牌 / 規格</th>
+                  <th>品名描述</th>
+                  <th>分類</th>
+                  <th class="text-center">目前庫存</th>
+                  <th>狀態 / 餘量</th>
+                  <th class="text-right">單價 / 總值</th>
+                  <th class="text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody"></tbody>
+            </table>
+          </div>
+          <div id="emptyInventoryMsg" class="empty-state hidden">目前尚無庫存紀錄，請從左側新增第一項材料或色膠。</div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 分頁 5：單客成本與定價試算 -->
+    <main id="tab-calculator" class="tab-content">
+      <div class="calc-layout">
+        <section class="card calc-inputs">
+          <div class="table-header" style="margin-bottom: 8px;">
+            <h3>1. 凝膠與耗材攤提設定</h3>
+            <button type="button" id="autoFillFromInvBtn" class="btn btn-outline sm-btn" title="依庫存清單中的凝膠單價自動計算平均值">
+              <i data-lucide="sparkles"></i> 套用庫存平均膠價
+            </button>
+          </div>
+          <p class="hint">輸入單瓶購入價格與預估可服務人次，系統自動換算單客材料成本。</p>
+
+          <div class="calc-grid-2">
+            <div class="form-group">
+              <label>凝膠平均單瓶價格 ($)</label>
+              <input type="number" id="gelBottlePrice" class="form-control calc-trigger" value="350" min="0" />
+            </div>
+            <div class="form-group">
+              <label>單瓶可用人次 (次/瓶)</label>
+              <input type="number" id="gelUsesPerBottle" class="form-control calc-trigger" value="35" min="1" />
+            </div>
+            <div class="form-group">
+              <label>單客平均用膠瓶數 (底/色/建構/上層)</label>
+              <input type="number" id="gelBottlesUsed" class="form-control calc-trigger" value="4" min="1" step="0.5" />
+            </div>
+            <div class="form-group">
+              <label>單次拋棄式耗材 (磨棒/棉片/卸甲水 $)</label>
+              <input type="number" id="disposableCost" class="form-control calc-trigger" value="45" min="0" />
+            </div>
+            <div class="form-group">
+              <label>單客飾品 / 粉類 / 貼紙平均成本 ($)</label>
+              <input type="number" id="accessoryCost" class="form-control calc-trigger" value="25" min="0" />
+            </div>
+            <div class="form-group">
+              <label>設備磨頭折舊分攤 ($/客)</label>
+              <input type="number" id="equipmentShare" class="form-control calc-trigger" value="20" min="0" />
+            </div>
+          </div>
+
+          <hr class="divider" />
+
+          <h3>2. 工作室固定開銷與工時</h3>
+          <div class="calc-grid-2">
+            <div class="form-group">
+              <label>每月固定開銷 (房租/水電/網路 $)</label>
+              <input type="number" id="monthlyFixedCost" class="form-control calc-trigger" value="15000" min="0" />
+            </div>
+            <div class="form-group">
+              <label>每月預估接客人數 (人)</label>
+              <input type="number" id="monthlyClients" class="form-control calc-trigger" value="45" min="1" />
+            </div>
+            <div class="form-group">
+              <label>單客施作時長 (小時)</label>
+              <input type="number" id="serviceHours" class="form-control calc-trigger" value="2" min="0.5" step="0.5" />
+            </div>
+            <div class="form-group">
+              <label>期望最低時薪 ($/hr)</label>
+              <input type="number" id="targetHourlyWage" class="form-control calc-trigger" value="450" min="0" />
+            </div>
+          </div>
+
+          <hr class="divider" />
+
+          <h3>3. 實際定價模擬</h3>
+          <div class="form-group">
+            <label>預計向客人收取的服務定價 ($)</label>
+            <input type="number" id="proposedPrice" class="form-control calc-trigger" value="1200" min="0" />
+          </div>
+        </section>
+
+        <section class="card calc-results">
+          <h3>單客成本結構與建議定價</h3>
+
+          <div class="cost-breakdown">
+            <div class="breakdown-row">
+              <span>凝膠材料攤提成本</span>
+              <strong id="resGelCost">$0</strong>
+            </div>
+            <div class="breakdown-row">
+              <span>拋棄式耗材成本（磨棒/棉片/卸甲）</span>
+              <strong id="resDisposableCost">$0</strong>
+            </div>
+            <div class="breakdown-row">
+              <span>飾品 / 粉類 / 貼紙平均成本</span>
+              <strong id="resAccessoryCost">$0</strong>
+            </div>
+            <div class="breakdown-row">
+              <span>設備與磨頭折舊分攤</span>
+              <strong id="resEquipmentShare">$0</strong>
+            </div>
+            <div class="breakdown-row">
+              <span>單客固定場地水電分攤</span>
+              <strong id="resFixedShare">$0</strong>
+            </div>
+            <div class="breakdown-row total-cost">
+              <span>單客純材料與營運總成本</span>
+              <strong id="resTotalHardCost">$0</strong>
+            </div>
+            <div class="breakdown-row">
+              <span>合理技術工時價值（依期望時薪）</span>
+              <strong id="resLaborCost">$0</strong>
+            </div>
+          </div>
+
+          <div class="recommendation-box">
+            <div class="rec-item">
+              <span>含工時保本最低定價</span>
+              <div class="rec-price" id="resBreakevenPrice">$0</div>
+            </div>
+            <div class="rec-item highlight">
+              <span>建議市場定價（含 25% 工作室利潤）</span>
+              <div class="rec-price" id="resSuggestedPrice">$0</div>
+            </div>
+          </div>
+
+          <div class="simulation-box">
+            <h4>依目前輸入定價 (<span id="simPriceDisplay">$1,200</span>) 試算：</h4>
+            <div class="sim-metrics">
+              <div class="sim-metric">
+                <span>扣除材料與場地後淨賺</span>
+                <strong id="simNetProfit">$0</strong>
+              </div>
+              <div class="sim-metric">
+                <span>實際換算每小時時薪</span>
+                <strong id="simActualHourly">$0 / hr</strong>
+              </div>
+              <div class="sim-metric">
+                <span>服務毛利率</span>
+                <strong id="simMarginRate">0%</strong>
+              </div>
+            </div>
+            <p id="simFeedback" class="sim-feedback"></p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 雲端同步設定 Modal -->
+  <div id="cloudModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Google Sheets 雲端同步設定</h3>
+        <button id="closeCloudModalBtn" class="delete-btn">✕</button>
+      </div>
+      <p class="hint">已內建你的 Google Apps Script 部署網址，手機與電腦開啟此網頁皆會自動雙向同步。</p>
+      <div class="form-group">
+        <label for="gasUrlInput">Google Apps Script 網頁應用程式網址</label>
+        <input type="url" id="gasUrlInput" class="form-control" placeholder="https://script.google.com/macros/s/xxxxx/exec" />
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+        <button id="clearGasUrlBtn" type="button" class="btn btn-text">恢復預設網址</button>
+        <button id="saveGasUrlBtn" type="button" class="btn btn-primary">儲存並測試連線</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
